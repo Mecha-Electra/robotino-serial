@@ -45,9 +45,22 @@ target_include_directories(main PUBLIC
   $<INSTALL_INTERFACE:include>)
 ament_target_dependencies(main rclcpp std_msgs geometry_msgs)
 
+
+# Install Python executables
+install(PROGRAMS
+  src/test_square.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+
 install(TARGETS
   main
   DESTINATION lib/${PROJECT_NAME}
+)
+install(
+  DIRECTORY
+    launch/
+  DESTINATION share/${PROJECT_NAME}/launch
 )
 
 if(BUILD_TESTING)

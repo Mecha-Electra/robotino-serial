@@ -1,0 +1,13 @@
+<launch>
+    <node pkg="robotino-serial" exec="main" name="robotino_node">
+        <param name="motor/0/kp" value="80" />
+        <param name="motor/0/ki" value="15" />
+        <param name="motor/0/kd" value="40" />
+        <param name="motor/1/kp" value="80" />
+        <param name="motor/1/ki" value="15" />
+        <param name="motor/1/kd" value="40" />
+        <param name="motor/2/kp" value="80" />
+        <param name="motor/2/ki" value="15" />
+        <param name="motor/2/kd" value="40" />
+    </node>
+</launch>

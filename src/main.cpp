@@ -3,6 +3,7 @@
 using std::placeholders::_1;
 #include "geometry_msgs/msg/twist.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "std_msgs/msg/float32.hpp"
 #include <serialib/serialib.h>
 #include "SensorState.hpp"
 #include "SetState.hpp"
@@ -19,27 +20,45 @@ public:
         : Node("robotino_driver"),
         _omni(DriveLayout())
     {
+        this->declare_parameter("motor/0/kp", 0);
+        this->declare_parameter("motor/0/ki", 0);
+        this->declare_parameter("motor/0/kd", 0);
+        this->declare_parameter("motor/1/kp", 0);
+        this->declare_parameter("motor/1/ki", 0);
+        this->declare_parameter("motor/1/kd", 0);
+        this->declare_parameter("motor/2/kp", 0);
+        this->declare_parameter("motor/2/ki", 0);
+        this->declare_parameter("motor/2/kd", 0);
+        this->declare_parameter("motor/max_rpm", 0);
+
         serial.openDevice("/dev/ttyUSB0", 115200);
         if(serial.isDeviceOpen()){
             RCLCPP_INFO(get_logger(), "device opened");
         }
         subscription_ = this->create_subscription<geometry_msgs::msg::Twist>(
             "cmd_vel", 10, std::bind(&RobotinoNode::vel_callback, this, _1));
-        publisher_ = this->create_publisher<std_msgs::msg::Bool>("bumper", 10);
+        bumper_publisher_ = this->create_publisher<std_msgs::msg::Bool>("bumper", 10);
+        m0v_publisher_ = this->create_publisher<std_msgs::msg::Float32>("m0/speed", 10);
+        m1v_publisher_ = this->create_publisher<std_msgs::msg::Float32>("m1/speed", 10);
+        m2v_publisher_ = this->create_publisher<std_msgs::msg::Float32>("m2/speed", 10);
+        m0vs_publisher_ = this->create_publisher<std_msgs::msg::Float32>("m0/speed_setpoint", 10);
+        m1vs_publisher_ = this->create_publisher<std_msgs::msg::Float32>("m1/speed_setpoint", 10);
+        m2vs_publisher_ = this->create_publisher<std_msgs::msg::Float32>("m2/speed_setpoint", 10);
         sendTimer_ = this->create_wall_timer(10ms, std::bind(&RobotinoNode::timer_send_callback, this));
         receiveTimer_ = this->create_wall_timer(5ms, std::bind(&RobotinoNode::timer_receive_callback, this));
         memset(buffer, 0, 255);
         _SetState.reset();
         motorEN = true;
-        _SetState.kp[0] = 60;
-        _SetState.ki[0] = 10;
-        _SetState.kd[0] = 10;
-        _SetState.kp[1] = 60;
-        _SetState.ki[1] = 10;
-        _SetState.kd[1] = 10;
-        _SetState.kp[2] = 60;
-        _SetState.ki[2] = 10;
-        _SetState.kd[2] = 10;
+
+        _SetState.kp[0] = this->get_parameter("motor/0/kp").as_int();
+        _SetState.ki[0] = this->get_parameter("motor/0/ki").as_int();
+        _SetState.kd[0] = this->get_parameter("motor/0/kd").as_int();
+        _SetState.kp[1] = this->get_parameter("motor/1/kp").as_int();
+        _SetState.ki[1] = this->get_parameter("motor/1/ki").as_int();
+        _SetState.kd[1] = this->get_parameter("motor/1/kd").as_int();
+        _SetState.kp[2] = this->get_parameter("motor/2/kp").as_int();
+        _SetState.ki[2] = this->get_parameter("motor/2/ki").as_int();
+        _SetState.kd[2] = this->get_parameter("motor/2/kd").as_int();
     }
 
 private:
@@ -63,7 +82,15 @@ private:
             _SetState.dOut[0] = status & 32;
             //RCLCPP_INFO(get_logger(), "sending: %f %f %f", _SetState.speedSetPoint[0], _SetState.speedSetPoint[1], _SetState.speedSetPoint[2]);
         }
-        
+        std_msgs::msg::Float32 m0_vs = std_msgs::msg::Float32();
+        std_msgs::msg::Float32 m1_vs = std_msgs::msg::Float32();
+        std_msgs::msg::Float32 m2_vs = std_msgs::msg::Float32();
+        m0_vs.data = _SetState.speedSetPoint[0];
+        m1_vs.data = _SetState.speedSetPoint[1];
+        m2_vs.data = _SetState.speedSetPoint[2];
+        m0vs_publisher_->publish(m0_vs);
+        m1vs_publisher_->publish(m1_vs);
+        m2vs_publisher_->publish(m2_vs);
         _SetState.toQDSAProtocol(buffer);
         serial.writeBytes(buffer, 47);
     }
@@ -79,7 +106,17 @@ private:
                 }
                 std_msgs::msg::Bool message = std_msgs::msg::Bool();
                 message.data = _SensorState.bumper;
-                publisher_->publish(message);
+                bumper_publisher_->publish(message);
+
+                m0v_publisher_->publish(std_msgs::msg::Float32().set__data(
+                    _SensorState.actualVelocity[0]
+                ));
+                m1v_publisher_->publish(std_msgs::msg::Float32().set__data(
+                    _SensorState.actualVelocity[1]
+                ));
+                m2v_publisher_->publish(std_msgs::msg::Float32().set__data(
+                    _SensorState.actualVelocity[2]
+                ));
             }else{
                 RCLCPP_WARN(get_logger(), "unable to decode");
                 serial.flushReceiver();
@@ -89,7 +126,13 @@ private:
 
     rclcpp::TimerBase::SharedPtr sendTimer_;
     rclcpp::TimerBase::SharedPtr receiveTimer_;
-    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr publisher_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bumper_publisher_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr m0v_publisher_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr m1v_publisher_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr m2v_publisher_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr m0vs_publisher_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr m1vs_publisher_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr m2vs_publisher_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr subscription_;
     serialib serial;
     unsigned short status = 0;
