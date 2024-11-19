@@ -4,6 +4,12 @@ using std::placeholders::_1;
 #include "geometry_msgs/msg/twist.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/float32.hpp"
+
+#include "nav_msgs/msg/odometry.hpp"
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+
 #include <serialib/serialib.h>
 #include "SensorState.hpp"
 #include "SetState.hpp"
@@ -44,11 +50,17 @@ public:
         m0vs_publisher_ = this->create_publisher<std_msgs::msg::Float32>("m0/speed_setpoint", 10);
         m1vs_publisher_ = this->create_publisher<std_msgs::msg::Float32>("m1/speed_setpoint", 10);
         m2vs_publisher_ = this->create_publisher<std_msgs::msg::Float32>("m2/speed_setpoint", 10);
+        odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
+        tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
+        last_wheel_time_ = this->now();
         sendTimer_ = this->create_wall_timer(10ms, std::bind(&RobotinoNode::timer_send_callback, this));
         receiveTimer_ = this->create_wall_timer(5ms, std::bind(&RobotinoNode::timer_receive_callback, this));
         memset(buffer, 0, 255);
         _SetState.reset();
         motorEN = true;
+        pose_local_.theta=0;
+        pose_local_.x=0;
+        pose_local_.y=0;
 
         _SetState.kp[0] = this->get_parameter("motor/0/kp").as_int();
         _SetState.ki[0] = this->get_parameter("motor/0/ki").as_int();
@@ -98,7 +110,7 @@ private:
     void timer_receive_callback(){
         memset(recv, 0, 110);
         if(serial.available() > 100){
-            serial.readBytes(recv, 101U, 10U); //robotino takes from 4 to 6 miliseconds to answer
+            serial.readBytes(recv, 101U, 10U, 0U); //robotino takes from 4 to 6 miliseconds to answer
             //RCLCPP_INFO(get_logger(), "%d", serial.available());
             if(_SensorState.fromQDSAProtocol(recv)){
                 if(_SensorState.bumper){
@@ -117,12 +129,108 @@ private:
                 m2v_publisher_->publish(std_msgs::msg::Float32().set__data(
                     _SensorState.actualVelocity[2]
                 ));
+
+                // odometry kinematics
+
+                double m1 = _SensorState.actualVelocity[0];
+                double m2 = _SensorState.actualVelocity[1];
+                double m3 = _SensorState.actualVelocity[2];
+
+                
+
+                float vx, vy, omega;
+                _omni.unprojectVelocity(&vx, &vy, &omega, m1, m2, m3, 0);
+
+                rclcpp::Time msg_time = this->now();
+
+                float dt = (msg_time - last_wheel_time_).seconds();
+
+                last_wheel_time_ = msg_time;
+
+                integrateByRungeKutta(vx, vy, omega, dt);
+
+                nav_msgs::msg::Odometry odom_msg;
+                geometry_msgs::msg::TransformStamped transform_stamped;
+                //odom_msg.header.stamp = this->get_clock()->now();
+                odom_msg.header.stamp = msg_time;
+                odom_msg.header.frame_id = "odom";
+                odom_msg.child_frame_id = "base_link";
+
+                transform_stamped.header.stamp = msg_time;
+                transform_stamped.header.frame_id = "odom";        // Frame pai
+                transform_stamped.child_frame_id = "base_link";    // Frame filho
+
+                transform_stamped.transform.translation.x = pose_local_.x;  // Exemplo de deslocamento em X
+                transform_stamped.transform.translation.y = pose_local_.y;  // Exemplo de deslocamento em Y
+                transform_stamped.transform.translation.z = 0.0;  // Exemplo de deslocamento em Z
+
+
+                // Preenche a pose na mensagem de odometria
+                odom_msg.pose.pose.position.x = pose_local_.x;
+                odom_msg.pose.pose.position.y = pose_local_.y;
+
+                tf2::Quaternion q;
+                q.setRPY(0, 0, pose_local_.theta);
+                odom_msg.pose.pose.orientation.x = q.x();
+                odom_msg.pose.pose.orientation.y = q.y();
+                odom_msg.pose.pose.orientation.z = q.z();
+                odom_msg.pose.pose.orientation.w = q.w();
+
+                transform_stamped.transform.rotation.x = q.x();
+                transform_stamped.transform.rotation.y = q.y();
+                transform_stamped.transform.rotation.z = q.z();
+                transform_stamped.transform.rotation.w = q.w();
+
+                // Preenche a velocidade na mensagem de odometria
+                odom_msg.twist.twist.linear.x = vx;
+                odom_msg.twist.twist.linear.y = vy;
+                odom_msg.twist.twist.angular.z = omega;
+
+                // Exemplo simples com variância/erro arbitrário
+                for (int i = 0; i < 36; ++i) {
+                    odom_msg.pose.covariance[i] = 0.0;  // Inicializa com zeros
+                }
+
+                // Definindo variâncias e covariâncias
+                odom_msg.pose.covariance[0] = 0.01;  // Variância em x
+                odom_msg.pose.covariance[7] = 0.01;  // Variância em y
+                odom_msg.pose.covariance[14] = 0.01; // Variância em θ
+
+                // Covariâncias entre as variáveis
+                odom_msg.pose.covariance[1] = 0.001;  // Covariância entre x e y
+                odom_msg.pose.covariance[6] = 0.001;  // Covariância entre x e θ
+                odom_msg.pose.covariance[13] = 0.001; // Covariância entre y e θ
+
+                // Covariância entre as velocidades (simples exemplo)
+                odom_msg.twist.covariance[0] = 0.1;  // Variância em vx
+                odom_msg.twist.covariance[7] = 0.1;  // Variância em vy
+                odom_msg.twist.covariance[14] = 0.1; // Variância em ω
+
+                // Publica a mensagem de odometria
+                odom_publisher_->publish(odom_msg);
+                tf_broadcaster_->sendTransform(transform_stamped);
+
             }else{
                 RCLCPP_WARN(get_logger(), "unable to decode");
                 serial.flushReceiver();
             }
         }
     }
+
+    void integrateByRungeKutta(float vx, float vy, float wz, float dt_) {
+        double theta_bar = pose_local_.theta + (wz*dt_ / 2.0f);
+        pose_local_.x = pose_local_.x + (vx * cos(theta_bar) - vy * sin(theta_bar)) * dt_;
+        pose_local_.y = pose_local_.y + (vx * sin(theta_bar) + vy * cos(theta_bar)) * dt_;
+        pose_local_.theta += wz*dt_;
+    }
+
+    struct LocPose {
+        double x, y, theta;
+    } pose_local_;
+
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
+    rclcpp::Time last_wheel_time_;
+    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
     rclcpp::TimerBase::SharedPtr sendTimer_;
     rclcpp::TimerBase::SharedPtr receiveTimer_;

@@ -13,6 +13,10 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 add_library(serialib SHARED include/serialib/serialib.cpp)
 
@@ -43,7 +47,15 @@ target_link_libraries(main serialib)
 target_include_directories(main PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-ament_target_dependencies(main rclcpp std_msgs geometry_msgs)
+ament_target_dependencies(main 
+  rclcpp
+  std_msgs
+  geometry_msgs
+  sensor_msgs
+  nav_msgs
+  tf2
+  tf2_ros
+)
 
 install(TARGETS
   main
@@ -53,6 +65,11 @@ install(
   DIRECTORY
     launch/
   DESTINATION share/${PROJECT_NAME}/launch
+)
+install(
+  DIRECTORY
+    config/
+  DESTINATION share/${PROJECT_NAME}/config
 )
 
 if(BUILD_TESTING)
