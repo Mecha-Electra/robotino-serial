@@ -18,32 +18,14 @@ find_package(nav_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 
-add_library(serialib SHARED include/serialib/serialib.cpp)
-
-target_include_directories(serialib PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
-ament_export_targets(export_serialib HAS_LIBRARY_TARGET)
 
 install(
   DIRECTORY include/
   DESTINATION include
 )
 
-install(
-  TARGETS serialib
-  EXPORT export_serialib
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-  INCLUDES DESTINATION include
-)
-
-
 add_executable(main src/main.cpp src/OmniDriveSystem.cpp)
-target_link_libraries(main serialib)
+
 target_include_directories(main PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
