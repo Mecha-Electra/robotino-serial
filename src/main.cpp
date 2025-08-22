@@ -37,7 +37,7 @@ public:
         this->declare_parameter("motor/2/kd", 0);
         this->declare_parameter("motor/max_rpm", 0);
 
-        serial.openDevice("/dev/ttyUSB0", 115200);
+        serial.openDevice("/dev/ttyUSB1", 115200);
         if(serial.isDeviceOpen()){
             RCLCPP_INFO(get_logger(), "device opened");
         }
@@ -77,8 +77,13 @@ private:
     void vel_callback(const geometry_msgs::msg::Twist msg)
     {
         if(motorEN){
+
+            double vx = -msg.linear.x;
+            double vy = -msg.linear.y;
+            double wz = msg.angular.z;
+
             _omni.projectVelocity(_SetState.speedSetPoint, maxRPM, 
-                msg.linear.x, msg.linear.y, msg.angular.z);
+                vx, vy, wz);
             //RCLCPP_INFO(get_logger(), "wheelVels: %f %f %f", _SetState.speedSetPoint[0], _SetState.speedSetPoint[1], _SetState.speedSetPoint[2]);
         }
     }
@@ -140,6 +145,8 @@ private:
 
                 float vx, vy, omega;
                 _omni.unprojectVelocity(&vx, &vy, &omega, m1, m2, m3, 0);
+                vx = -vx; //invert x axis
+                vy = -vy; //invert y axis
 
                 rclcpp::Time msg_time = this->now();
 
